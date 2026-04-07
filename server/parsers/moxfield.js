@@ -77,11 +77,17 @@ async function getSharedBrowser() {
       "--disable-gpu",
       "--disable-extensions",
       "--disable-background-networking",
+      "--disable-default-apps",
+      "--disable-sync",
+      "--disable-translate",
+      "--no-first-run",
+      "--no-zygote",
       "--single-process",
+      "--mute-audio",
+      "--hide-scrollbars",
     ],
   };
 
-  // Use system Chromium if available (for Docker/production)
   if (process.env.PUPPETEER_EXECUTABLE_PATH) {
     launchOptions.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
     console.log(
@@ -106,10 +112,22 @@ export async function closeSharedBrowser() {
 
 async function createPage(browser) {
   const page = await browser.newPage();
-  await page.setViewport({ width: 1366, height: 768 });
+  await page.setViewport({ width: 1280, height: 720 });
   await page.setUserAgent(
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
   );
+
+  // Block images, stylesheets, and fonts to save memory and time
+  await page.setRequestInterception(true);
+  page.on("request", (req) => {
+    const resourceType = req.resourceType();
+    if (["image", "stylesheet", "font", "media"].includes(resourceType)) {
+      req.abort();
+    } else {
+      req.continue();
+    }
+  });
+
   return page;
 }
 
@@ -139,7 +157,7 @@ async function fetchDeckWithBrowser(url, deckId, browser) {
     });
 
     console.log(`  [Moxfield] Loading deck page...`);
-    await page.goto(url, { waitUntil: "networkidle2", timeout: 30000 });
+    await page.goto(url, { waitUntil: "networkidle2", timeout: 60000 });
 
     if (apiData) {
       console.log(`  [Moxfield] Deck data captured`);
@@ -211,7 +229,7 @@ async function fetchPaginatedListWithBrowser(url, listId, listType, browser) {
     });
 
     console.log(`  [Moxfield] Loading ${listType} page...`);
-    await page.goto(url, { waitUntil: "networkidle2", timeout: 30000 });
+    await page.goto(url, { waitUntil: "networkidle2", timeout: 60000 });
 
     if (!firstPageData) {
       console.log(`  [Moxfield] No data intercepted, scrolling...`);

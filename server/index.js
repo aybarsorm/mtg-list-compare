@@ -1,5 +1,6 @@
 import express from "express";
 import path from "path";
+import fs from "fs";
 import { fileURLToPath } from "url";
 import { fetchAndParseUrl, detectProvider } from "./parsers/index.js";
 import { compareCards } from "./matching/engine.js";
@@ -12,7 +13,19 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json({ limit: "5mb" }));
-app.use(express.static(path.join(__dirname, "..", "public")));
+// Serve static files
+const publicPath = path.join(__dirname, "..", "public");
+console.log(`[Static] Serving files from: ${publicPath}`);
+
+// Check if public directory exists
+if (fs.existsSync(publicPath)) {
+  const files = fs.readdirSync(publicPath);
+  console.log(`[Static] Files found: ${files.join(", ")}`);
+} else {
+  console.log(`[Static] WARNING: public directory not found!`);
+}
+
+app.use(express.static(publicPath));
 
 // Health check
 app.get("/api/health", (req, res) => {

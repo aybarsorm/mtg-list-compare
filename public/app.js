@@ -36,7 +36,7 @@ document.addEventListener("DOMContentLoaded", () => {
     compareBtn.disabled = true;
     resultsDiv.innerHTML = "";
     showStatus(
-      "⏳ Fetching card lists from Moxfield...\nThis may take 15-30 seconds.",
+      "⏳ Fetching card lists from Moxfield...\nThis may take 30-60 seconds on first load.",
       "loading"
     );
 
