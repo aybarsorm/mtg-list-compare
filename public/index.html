@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MTG List Comparator</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="container">
+    <h1>MTG List Comparator</h1>
+
+    <div class="form-section">
+      <input
+        type="url"
+        id="url1"
+        class="url-input"
+        placeholder="Paste first list URL (e.g., https://www.moxfield.com/decks/...)"
+      />
+
+      <div class="to-label">TO</div>
+
+      <input
+        type="url"
+        id="url2"
+        class="url-input"
+        placeholder="Paste second list URL (e.g., https://www.moxfield.com/decks/...)"
+      />
+
+      <button id="compareBtn" class="compare-btn">🔍 Compare</button>
+    </div>
+
+    <div id="status" class="status"></div>
+
+    <div id="results" class="results"></div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

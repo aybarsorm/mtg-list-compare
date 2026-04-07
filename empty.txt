@@ -1,0 +1,50 @@
+fetch("http://localhost:3000/style.css", {
+  "headers": {
+    "if-modified-since": "Tue, 07 Apr 2026 08:15:17 GMT",
+    "if-none-match": "W/\"6e4-19d67029a28\"",
+    "sec-ch-ua": "\"Not:A-Brand\";v=\"99\", \"Opera\";v=\"129\", \"Chromium\";v=\"145\"",
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": "\"Windows\""
+  },
+  "referrer": "http://localhost:3000/",
+  "body": null,
+  "method": "GET",
+  "mode": "cors",
+  "credentials": "omit"
+}); ;
+fetch("http://localhost:3000/api/resolve-urls", {
+  "headers": {
+    "accept": "*/*",
+    "accept-language": "tr,en-US;q=0.9,en;q=0.8,zh-CN;q=0.7,zh;q=0.6,ja;q=0.5,ru;q=0.4,es;q=0.3,fr;q=0.2",
+    "content-type": "application/json",
+    "sec-ch-ua": "\"Not:A-Brand\";v=\"99\", \"Opera\";v=\"129\", \"Chromium\";v=\"145\"",
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": "\"Windows\"",
+    "sec-fetch-dest": "empty",
+    "sec-fetch-mode": "cors",
+    "sec-fetch-site": "same-origin"
+  },
+  "referrer": "http://localhost:3000/",
+  "body": "{\"url1\":\"https://moxfield.com/decks/PsvvKBFgxUCfbvCtZ3aUZA\",\"url2\":\"https://moxfield.com/decks/PsvvKBFgxUCfbvCtZ3aUZA\"}",
+  "method": "POST",
+  "mode": "cors",
+  "credentials": "omit"
+}); ;
+fetch("https://api2.moxfield.com/v3/decks/all/PsvvKBFgxUCfbvCtZ3aUZA", {
+  "headers": {
+    "accept": "*/*",
+    "accept-language": "tr,en-US;q=0.9,en;q=0.8,zh-CN;q=0.7,zh;q=0.6,ja;q=0.5,ru;q=0.4,es;q=0.3,fr;q=0.2",
+    "priority": "u=1, i",
+    "sec-ch-ua": "\"Not:A-Brand\";v=\"99\", \"Opera\";v=\"129\", \"Chromium\";v=\"145\"",
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": "\"Windows\"",
+    "sec-fetch-dest": "empty",
+    "sec-fetch-mode": "cors",
+    "sec-fetch-site": "cross-site"
+  },
+  "referrer": "http://localhost:3000/",
+  "body": null,
+  "method": "GET",
+  "mode": "cors",
+  "credentials": "omit"
+});
