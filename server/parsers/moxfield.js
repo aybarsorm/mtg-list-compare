@@ -75,16 +75,6 @@ async function getSharedBrowser() {
       "--disable-setuid-sandbox",
       "--disable-dev-shm-usage",
       "--disable-gpu",
-      "--disable-extensions",
-      "--disable-background-networking",
-      "--disable-default-apps",
-      "--disable-sync",
-      "--disable-translate",
-      "--no-first-run",
-      "--no-zygote",
-      "--single-process",
-      "--mute-audio",
-      "--hide-scrollbars",
     ],
   };
 
@@ -116,18 +106,6 @@ async function createPage(browser) {
   await page.setUserAgent(
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
   );
-
-  // Block images, stylesheets, and fonts to save memory and time
-  await page.setRequestInterception(true);
-  page.on("request", (req) => {
-    const resourceType = req.resourceType();
-    if (["image", "stylesheet", "font", "media"].includes(resourceType)) {
-      req.abort();
-    } else {
-      req.continue();
-    }
-  });
-
   return page;
 }
 
@@ -201,29 +179,44 @@ async function fetchPaginatedListWithBrowser(url, listId, listType, browser) {
   try {
     let discoveredApiUrl = null;
     let firstPageData = null;
+    const allApiCalls = [];
 
     page.on("response", async (response) => {
       const responseUrl = response.url();
       if (!responseUrl.includes("api2.moxfield.com")) return;
 
+      allApiCalls.push({
+        url: responseUrl,
+        status: response.status(),
+      });
+
+      if (response.status() !== 200) return;
+
       try {
-        const json = await response.json();
-        if (
-          json &&
-          json.data &&
-          Array.isArray(json.data) &&
-          json.data.length > 0
-        ) {
-          const sample = json.data[0];
-          if (sample.card || sample.cardId || sample.quantity !== undefined) {
-            if (!firstPageData) {
-              discoveredApiUrl = responseUrl;
-              firstPageData = json;
-              console.log(
-                `  [Moxfield] ${listType} data captured: page ${json.pageNumber || 1}/${json.totalPages || 1}, ${json.totalResults || "?"} total cards`
-              );
-            }
+        const text = await response.text();
+        let json;
+        try {
+          json = JSON.parse(text);
+        } catch (e) {
+          return;
+        }
+
+        // Paginated response with data array
+        if (json && json.data && Array.isArray(json.data) && json.data.length > 0) {
+          if (!firstPageData) {
+            discoveredApiUrl = responseUrl;
+            firstPageData = json;
+            console.log(
+              `  [Moxfield] ${listType} data captured: ${json.data.length} items, page ${json.pageNumber || 1}/${json.totalPages || 1}, ${json.totalResults || "?"} total`
+            );
           }
+        }
+
+        // Board-style response
+        if (json && json.boards && !firstPageData) {
+          discoveredApiUrl = responseUrl;
+          firstPageData = { _isBoardFormat: true, ...json };
+          console.log(`  [Moxfield] ${listType} data captured (board format)`);
         }
       } catch (e) {}
     });
@@ -231,33 +224,40 @@ async function fetchPaginatedListWithBrowser(url, listId, listType, browser) {
     console.log(`  [Moxfield] Loading ${listType} page...`);
     await page.goto(url, { waitUntil: "networkidle2", timeout: 60000 });
 
+    // If nothing intercepted during initial load, try scrolling
     if (!firstPageData) {
-      console.log(`  [Moxfield] No data intercepted, scrolling...`);
-      await page.evaluate(() =>
-        window.scrollTo(0, document.body.scrollHeight)
-      );
-      await new Promise((r) => setTimeout(r, 3000));
+      console.log(`  [Moxfield] Waiting for data after scroll...`);
+      await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+      await new Promise((r) => setTimeout(r, 4000));
     }
 
+    // Log all API calls for debugging
     if (!firstPageData) {
-      console.log(`  [Moxfield] Trying direct API calls...`);
+      console.log(`  [Moxfield] API calls seen (${allApiCalls.length}):`);
+      for (const call of allApiCalls) {
+        console.log(`    ${call.status} ${call.url.substring(0, 150)}`);
+      }
+    }
 
-      const apiPatterns = [];
+    // If still no data, try known API patterns from within the browser
+    if (!firstPageData) {
+      console.log(`  [Moxfield] Trying known API patterns...`);
+
+      const patterns = [];
       if (listType === "collection") {
-        apiPatterns.push(
-          `https://api2.moxfield.com/v3/collections/${listId}/cards?pageNumber=1&pageSize=100`,
-          `https://api2.moxfield.com/v2/collections/${listId}/cards?pageNumber=1&pageSize=100`,
-          `https://api2.moxfield.com/v1/collections/${listId}/cards?pageNumber=1&pageSize=100`
+        patterns.push(
+          `https://api2.moxfield.com/v1/collections/search/${listId}?sortType=cardName&sortDirection=ascending&pageNumber=1&pageSize=100&playStyle=paperDollars&pricingProvider=cardkingdom`
         );
       } else if (listType === "binder") {
-        apiPatterns.push(
-          `https://api2.moxfield.com/v3/binders/${listId}/cards?pageNumber=1&pageSize=100`,
+        patterns.push(
+          `https://api2.moxfield.com/v1/binders/search/${listId}?sortType=cardName&sortDirection=ascending&pageNumber=1&pageSize=100`,
           `https://api2.moxfield.com/v2/binders/${listId}/cards?pageNumber=1&pageSize=100`,
           `https://api2.moxfield.com/v1/binders/${listId}/cards?pageNumber=1&pageSize=100`
         );
       }
 
-      for (const apiUrl of apiPatterns) {
+      for (const apiUrl of patterns) {
+        console.log(`  [Moxfield] Trying: ${apiUrl.substring(0, 120)}...`);
         const result = await page.evaluate(async (fetchUrl) => {
           try {
             const resp = await fetch(fetchUrl, { credentials: "include" });
@@ -268,48 +268,56 @@ async function fetchPaginatedListWithBrowser(url, listId, listType, browser) {
           }
         }, apiUrl);
 
-        if (
-          result &&
-          !result.error &&
-          result.data &&
-          Array.isArray(result.data)
-        ) {
+        if (result && !result.error && result.data && Array.isArray(result.data) && result.data.length > 0) {
           discoveredApiUrl = apiUrl;
           firstPageData = result;
           console.log(
-            `  [Moxfield] Direct API call worked: ${result.data.length} items, ${result.totalPages || 1} pages`
+            `  [Moxfield] Pattern worked: ${result.data.length} items, ${result.totalPages || 1} pages, ${result.totalResults || "?"} total`
           );
           break;
+        } else if (result && !result.error && result.boards) {
+          firstPageData = { _isBoardFormat: true, ...result };
+          console.log(`  [Moxfield] Pattern worked (board format)`);
+          break;
+        } else {
+          console.log(`  [Moxfield] → ${result?.error || "no data"}`);
         }
       }
     }
 
-    if (!firstPageData || !firstPageData.data) {
+    if (!firstPageData) {
       throw new Error(
         `Could not find card data for this ${listType}. It may be private or empty.`
       );
     }
 
-    // Collect all pages
+    // Handle board-style response
+    if (firstPageData._isBoardFormat) {
+      return { type: "boards", data: firstPageData };
+    }
+
+    // Handle paginated data — fetch ALL pages
     const allEntries = [...firstPageData.data];
     const totalPages = firstPageData.totalPages || 1;
+    const totalResults = firstPageData.totalResults || allEntries.length;
+
+    console.log(
+      `  [Moxfield] Page 1 loaded: ${allEntries.length} items. Total: ${totalResults} across ${totalPages} pages`
+    );
 
     if (totalPages > 1 && discoveredApiUrl) {
-      console.log(`  [Moxfield] Fetching ${totalPages - 1} more pages...`);
+      // Make sure we're using pageSize=100 for efficiency
+      let baseUrl = discoveredApiUrl;
+      if (baseUrl.includes("pageSize=50")) {
+        baseUrl = baseUrl.replace("pageSize=50", "pageSize=100");
+        // Recalculate pages with new page size
+        const newTotalPages = Math.ceil(totalResults / 100);
+        console.log(
+          `  [Moxfield] Switched to pageSize=100, fetching ${newTotalPages} pages total...`
+        );
 
-      for (let pageNum = 2; pageNum <= totalPages; pageNum++) {
-        let pageUrl = discoveredApiUrl;
-        if (pageUrl.includes("pageNumber=")) {
-          pageUrl = pageUrl.replace(
-            /pageNumber=\d+/,
-            `pageNumber=${pageNum}`
-          );
-        } else {
-          const sep = pageUrl.includes("?") ? "&" : "?";
-          pageUrl = `${pageUrl}${sep}pageNumber=${pageNum}`;
-        }
-
-        const pageData = await page.evaluate(async (fetchUrl) => {
+        // Re-fetch page 1 with larger page size
+        const page1Data = await page.evaluate(async (fetchUrl) => {
           try {
             const resp = await fetch(fetchUrl, { credentials: "include" });
             if (!resp.ok) return { error: resp.status };
@@ -317,23 +325,104 @@ async function fetchPaginatedListWithBrowser(url, listId, listType, browser) {
           } catch (e) {
             return { error: e.message };
           }
-        }, pageUrl);
+        }, baseUrl);
 
-        if (pageData && pageData.data && Array.isArray(pageData.data)) {
-          allEntries.push(...pageData.data);
+        if (page1Data && page1Data.data && Array.isArray(page1Data.data)) {
+          // Replace with the larger first page
+          allEntries.length = 0;
+          allEntries.push(...page1Data.data);
+          const updatedTotalPages = page1Data.totalPages || newTotalPages;
+
+          console.log(
+            `  [Moxfield] Page 1 re-fetched: ${allEntries.length} items, ${updatedTotalPages} pages`
+          );
+
+          for (let pageNum = 2; pageNum <= updatedTotalPages; pageNum++) {
+            let pageUrl = baseUrl.replace(
+              /pageNumber=\d+/,
+              `pageNumber=${pageNum}`
+            );
+
+            const pageData = await page.evaluate(async (fetchUrl) => {
+              try {
+                const resp = await fetch(fetchUrl, { credentials: "include" });
+                if (!resp.ok) return { error: resp.status };
+                return await resp.json();
+              } catch (e) {
+                return { error: e.message };
+              }
+            }, pageUrl);
+
+            if (pageData && pageData.data && Array.isArray(pageData.data)) {
+              allEntries.push(...pageData.data);
+            }
+
+            if (pageData && pageData.error) {
+              console.log(
+                `  [Moxfield] Page ${pageNum} error: ${pageData.error}`
+              );
+              break;
+            }
+
+            // Log progress every 10 pages
+            if (pageNum % 10 === 0 || pageNum === updatedTotalPages) {
+              console.log(
+                `  [Moxfield] Progress: page ${pageNum}/${updatedTotalPages} (${allEntries.length} cards)`
+              );
+            }
+
+            // Small delay to avoid rate limiting
+            await new Promise((r) => setTimeout(r, 100));
+          }
         }
+      } else {
+        // Fetch remaining pages with original URL
+        for (let pageNum = 2; pageNum <= totalPages; pageNum++) {
+          let pageUrl = discoveredApiUrl;
+          if (pageUrl.includes("pageNumber=")) {
+            pageUrl = pageUrl.replace(
+              /pageNumber=\d+/,
+              `pageNumber=${pageNum}`
+            );
+          } else {
+            const sep = pageUrl.includes("?") ? "&" : "?";
+            pageUrl = `${pageUrl}${sep}pageNumber=${pageNum}`;
+          }
 
-        if (pageData && pageData.error) {
-          console.log(`  [Moxfield] Page ${pageNum} error: ${pageData.error}`);
-          break;
+          const pageData = await page.evaluate(async (fetchUrl) => {
+            try {
+              const resp = await fetch(fetchUrl, { credentials: "include" });
+              if (!resp.ok) return { error: resp.status };
+              return await resp.json();
+            } catch (e) {
+              return { error: e.message };
+            }
+          }, pageUrl);
+
+          if (pageData && pageData.data && Array.isArray(pageData.data)) {
+            allEntries.push(...pageData.data);
+          }
+
+          if (pageData && pageData.error) {
+            console.log(
+              `  [Moxfield] Page ${pageNum} error: ${pageData.error}`
+            );
+            break;
+          }
+
+          if (pageNum % 10 === 0 || pageNum === totalPages) {
+            console.log(
+              `  [Moxfield] Progress: page ${pageNum}/${totalPages} (${allEntries.length} cards)`
+            );
+          }
+
+          await new Promise((r) => setTimeout(r, 100));
         }
-
-        await new Promise((r) => setTimeout(r, 100));
       }
     }
 
     console.log(`  [Moxfield] Total entries collected: ${allEntries.length}`);
-    return allEntries;
+    return { type: "list", data: allEntries };
   } finally {
     await page.close();
   }
@@ -472,24 +561,39 @@ export async function fetchAndParseMoxfield(url) {
 
   try {
     if (detected.type === "deck") {
-      const apiResponse = await fetchDeckWithBrowser(url, detected.id, browser);
+      const apiResponse = await fetchDeckWithBrowser(
+        url,
+        detected.id,
+        browser
+      );
       return parseDeckResponse(apiResponse, url);
     }
 
-    if (detected.type === "collection") {
-      const entries = await fetchPaginatedListWithBrowser(
-        url, detected.id, "collection", browser
+    if (detected.type === "collection" || detected.type === "binder") {
+      const result = await fetchPaginatedListWithBrowser(
+        url,
+        detected.id,
+        detected.type,
+        browser
       );
-      const cards = parseListEntries(entries, url, "collection");
-      return { cards, label: `Moxfield Collection (${cards.length} cards)` };
-    }
 
-    if (detected.type === "binder") {
-      const entries = await fetchPaginatedListWithBrowser(
-        url, detected.id, "binder", browser
-      );
-      const cards = parseListEntries(entries, url, "binder");
-      return { cards, label: `Moxfield Binder (${cards.length} cards)` };
+      // Handle board-style response
+      if (result.type === "boards") {
+        const parsed = parseDeckResponse(result.data, url);
+        const label =
+          detected.type === "collection"
+            ? `Moxfield Collection (${parsed.cards.length} cards)`
+            : `Moxfield Binder (${parsed.cards.length} cards)`;
+        return { cards: parsed.cards, label };
+      }
+
+      // Handle flat list response
+      const cards = parseListEntries(result.data, url, detected.type);
+      const label =
+        detected.type === "collection"
+          ? `Moxfield Collection (${cards.length} cards)`
+          : `Moxfield Binder (${cards.length} cards)`;
+      return { cards, label };
     }
 
     throw new Error(`Unsupported Moxfield URL type: ${detected.type}`);
