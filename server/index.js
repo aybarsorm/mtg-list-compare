@@ -2,9 +2,14 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
-import { fetchAndParseUrl, detectProvider } from "./parsers/index.js";
+import { detectProvider } from "./parsers/index.js";
 import { compareCards } from "./matching/engine.js";
-import { closeSharedBrowser } from "./parsers/moxfield.js";
+import {
+  detectMoxfieldUrl,
+  fetchAndParseTwoMoxfieldUrls,
+  fetchAndParseMoxfield,
+  closeSharedBrowser,
+} from "./parsers/moxfield.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -13,18 +18,13 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json({ limit: "5mb" }));
+
 // Serve static files
 const publicPath = path.join(__dirname, "..", "public");
-console.log(`[Static] Serving files from: ${publicPath}`);
-
-// Check if public directory exists
 if (fs.existsSync(publicPath)) {
   const files = fs.readdirSync(publicPath);
-  console.log(`[Static] Files found: ${files.join(", ")}`);
-} else {
-  console.log(`[Static] WARNING: public directory not found!`);
+  console.log(`[Static] Files: ${files.join(", ")}`);
 }
-
 app.use(express.static(publicPath));
 
 // Health check
@@ -48,19 +48,18 @@ app.post("/api/compare", async (req, res) => {
       });
     }
 
-    // Trim URLs
     const trimmedUrl1 = url1.trim();
     const trimmedUrl2 = url2.trim();
 
-    // Validate URLs
-    if (!detectProvider(trimmedUrl1)) {
+    // Validate
+    if (!detectMoxfieldUrl(trimmedUrl1)) {
       return res.status(400).json({
         success: false,
         error: `Unsupported URL: ${trimmedUrl1}\n\nSupported:\n• moxfield.com/decks/{id}\n• moxfield.com/collection/{id}\n• moxfield.com/binders/{id}`,
       });
     }
 
-    if (!detectProvider(trimmedUrl2)) {
+    if (!detectMoxfieldUrl(trimmedUrl2)) {
       return res.status(400).json({
         success: false,
         error: `Unsupported URL: ${trimmedUrl2}\n\nSupported:\n• moxfield.com/decks/{id}\n• moxfield.com/collection/{id}\n• moxfield.com/binders/{id}`,
@@ -69,35 +68,33 @@ app.post("/api/compare", async (req, res) => {
 
     let result1, result2;
 
-    // Optimization: if both URLs are identical, only fetch once
     if (trimmedUrl1 === trimmedUrl2) {
-      console.log("\n[Compare] Both URLs are the same — fetching once...");
-      result1 = await fetchAndParseUrl(trimmedUrl1);
+      // Same URL — fetch once
+      console.log("\n[Compare] Same URL — fetching once...");
+      result1 = await fetchAndParseMoxfield(trimmedUrl1);
       result2 = {
         cards: result1.cards.map((c) => ({ ...c })),
         label: result1.label,
-        provider: result1.provider,
       };
     } else {
-      console.log("\n[Compare] Fetching list 1...");
-      result1 = await fetchAndParseUrl(trimmedUrl1);
-
-      console.log("[Compare] Fetching list 2...");
-      result2 = await fetchAndParseUrl(trimmedUrl2);
+      // Different URLs — use optimized two-URL fetcher (single browser session)
+      console.log("\n[Compare] Fetching both lists...");
+      const results = await fetchAndParseTwoMoxfieldUrls(
+        trimmedUrl1,
+        trimmedUrl2
+      );
+      result1 = results.result1;
+      result2 = results.result2;
     }
-
-    // Close the shared browser after fetching
-    await closeSharedBrowser();
 
     console.log(
       `[Compare] List 1: ${result1.cards.length} cards, List 2: ${result2.cards.length} cards`
     );
 
-    // Run matching engine
-    console.log("[Compare] Running matching engine...");
+    // Run matching
+    console.log("[Compare] Matching...");
     const comparison = compareCards(result1.cards, result2.cards);
 
-    // Log summary
     const catSummary = [];
     for (const [catName, pairs] of Object.entries(comparison.categories)) {
       const qty = pairs.reduce((sum, p) => sum + p.matchedQuantity, 0);
@@ -123,9 +120,6 @@ app.post("/api/compare", async (req, res) => {
       elapsed: `${elapsed}s`,
     });
   } catch (err) {
-    // Make sure browser is closed on error too
-    await closeSharedBrowser().catch(() => {});
-
     console.error("[Compare] Error:", err.message);
     res.status(500).json({
       success: false,
@@ -134,7 +128,7 @@ app.post("/api/compare", async (req, res) => {
   }
 });
 
-// Cleanup on server shutdown
+// Cleanup
 process.on("SIGINT", async () => {
   console.log("\nShutting down...");
   await closeSharedBrowser().catch(() => {});
