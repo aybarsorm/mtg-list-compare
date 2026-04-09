@@ -40,16 +40,27 @@ document.addEventListener("DOMContentLoaded", () => {
     showStatus("", "");
     showProgress("Connecting...", 0);
 
-    // Build SSE URL
     const params = new URLSearchParams({ url1, url2 });
-    const evtSource = new EventSource(`/api/compare-stream?${params.toString()}`);
+    const evtSource = new EventSource(
+      `/api/compare-stream?${params.toString()}`
+    );
 
     evtSource.addEventListener("progress", (e) => {
       try {
         const data = JSON.parse(e.data);
         const msg = data.message || "Working...";
 
-        // Try to extract percentage from page progress messages
+        if (data.stage === "queue") {
+          // Show queue position with a pulsing style
+          showProgress(`⏳ ${msg}`, 0);
+          progressFill.classList.add("queue-waiting");
+          return;
+        }
+
+        // Once out of queue, remove pulsing
+        progressFill.classList.remove("queue-waiting");
+
+        // Extract percentage from page progress messages
         const pctMatch = msg.match(/(\d+)%/);
         const pct = pctMatch ? parseInt(pctMatch[1]) : null;
 
@@ -65,12 +76,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
         showProgress(msg, overallPct);
       } catch (err) {
-        // ignore parse errors
+        // ignore
       }
     });
 
     evtSource.addEventListener("result", (e) => {
       evtSource.close();
+      progressFill.classList.remove("queue-waiting");
+
       try {
         const data = JSON.parse(e.data);
         if (!data.success) {
@@ -98,7 +111,8 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     evtSource.addEventListener("error", (e) => {
-      // Check if it's a custom error event from our server
+      progressFill.classList.remove("queue-waiting");
+
       if (e.data) {
         evtSource.close();
         try {
@@ -113,7 +127,6 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
 
-      // EventSource native error (connection lost, etc.)
       evtSource.close();
       hideProgress();
       showStatus("Connection lost. Please try again.", "error");
@@ -139,17 +152,38 @@ document.addEventListener("DOMContentLoaded", () => {
   function hideProgress() {
     progressDiv.classList.remove("visible");
     progressFill.style.width = "0%";
+    progressFill.classList.remove("queue-waiting");
     progressText.textContent = "";
   }
 
   // ---- Categories ----
 
   const CATEGORY_ORDER = [
-    { key: "fullMatch", label: "Full Match", desc: "Same card, set, collector #, and foil status" },
-    { key: "almostFullMatch", label: "Almost Full Match", desc: "Same card & set, promo/variant collector #, same foil" },
-    { key: "fullMatchNoFoil", label: "Full Match No Foil", desc: "Same card, set, collector # — different foil status" },
-    { key: "setMatch", label: "Set Match", desc: "Same card & set, different collector #" },
-    { key: "sameCard", label: "Same Card", desc: "Same card, different set" },
+    {
+      key: "fullMatch",
+      label: "Full Match",
+      desc: "Same card, set, collector #, and foil status",
+    },
+    {
+      key: "almostFullMatch",
+      label: "Almost Full Match",
+      desc: "Same card & set, promo/variant collector #, same foil",
+    },
+    {
+      key: "fullMatchNoFoil",
+      label: "Full Match No Foil",
+      desc: "Same card, set, collector # — different foil status",
+    },
+    {
+      key: "setMatch",
+      label: "Set Match",
+      desc: "Same card & set, different collector #",
+    },
+    {
+      key: "sameCard",
+      label: "Same Card",
+      desc: "Same card, different set",
+    },
   ];
 
   // ---- Render ----
@@ -160,7 +194,6 @@ document.addEventListener("DOMContentLoaded", () => {
     const totalMatched = data.summary ? data.summary.totalMatched : 0;
     const totalUnmatched1 = data.summary ? data.summary.totalUnmatched1 : 0;
 
-    // Summary bar
     html += `
       <div class="summary-bar">
         <div class="summary-item">
@@ -182,7 +215,6 @@ document.addEventListener("DOMContentLoaded", () => {
       </div>
     `;
 
-    // Toggle bar
     html += `
       <div class="toggle-bar">
         <button class="toggle-btn ${displayMode === "image" ? "active" : ""}" data-mode="image">🖼️ Images</button>
@@ -190,7 +222,6 @@ document.addEventListener("DOMContentLoaded", () => {
       </div>
     `;
 
-    // Category sections
     for (const cat of CATEGORY_ORDER) {
       const pairs = data.categories[cat.key];
       if (!pairs || pairs.length === 0) continue;
@@ -218,7 +249,6 @@ document.addEventListener("DOMContentLoaded", () => {
       html += `</div>`;
     }
 
-    // Unmatched cards
     if (data.unmatched1 && data.unmatched1.length > 0) {
       html += renderUnmatchedSection(
         data.unmatched1,
@@ -227,14 +257,12 @@ document.addEventListener("DOMContentLoaded", () => {
       );
     }
 
-    // No matches at all
     if (totalMatched === 0 && totalUnmatched1 === 0) {
       html += `<p style="text-align:center; color:#888; margin-top:30px;">No cards to compare.</p>`;
     }
 
     resultsDiv.innerHTML = html;
 
-    // Toggle listeners
     document.querySelectorAll(".toggle-btn").forEach((btn) => {
       btn.addEventListener("click", () => {
         displayMode = btn.dataset.mode;

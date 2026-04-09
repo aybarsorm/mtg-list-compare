@@ -7,6 +7,17 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
+  <div class="feedback-bar">
+    <span class="feedback-text">Send your feedback!</span>
+    <button class="feedback-btn" id="copyEmailBtn" title="Copy email address">
+      <svg class="mail-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="2" y="4" width="20" height="16" rx="2"></rect>
+        <path d="M22 4L12 13L2 4"></path>
+      </svg>
+      <span class="feedback-btn-text">Copy Email</span>
+      <span class="feedback-copied">Copied!</span>
+    </button>
+  </div>
   <div class="container">
     <h1>MTG List Comparator</h1>
 
@@ -43,5 +54,13 @@
   </div>
 
   <script src="app.js"></script>
+  <script>
+    document.getElementById("copyEmailBtn").addEventListener("click", function () {
+      navigator.clipboard.writeText("ormanlaybars@gmail.com").then(() => {
+        this.classList.add("copied");
+        setTimeout(() => this.classList.remove("copied"), 2000);
+      });
+    });
+  </script>
 </body>
 </html>

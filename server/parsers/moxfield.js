@@ -4,23 +4,65 @@
  * Fetches public card lists from Moxfield using their API
  * with an authorized User-Agent key.
  *
- * Rate limit: ~1 request per second (strictly enforced).
- * Includes automatic retry with backoff on 429 responses.
+ * All API calls go through a global sequential queue to ensure
+ * only 1 request per ~1.2s regardless of how many users are active.
  */
 
 import { normalizeCollectorNumber } from "../matching/normalize.js";
 
 // ============================================================
-// Rate Limiter — with retry on 429
+// Global Request Queue — serializes ALL API calls
 // ============================================================
 
 let lastRequestTime = 0;
+const requestQueue = [];
+let queueProcessing = false;
 
 /**
- * Enforces minimum delay between requests.
- * On 429, retries up to maxRetries times with exponential backoff.
+ * Returns the current number of pending items in the queue.
  */
-async function rateLimitedFetch(url, { maxRetries = 3, baseDelay = 1200 } = {}) {
+export function getQueueLength() {
+  return requestQueue.length;
+}
+
+/**
+ * Add a fetch call to the global queue.
+ * Returns a promise that resolves with the JSON response.
+ */
+function queuedFetch(url) {
+  return new Promise((resolve, reject) => {
+    requestQueue.push({ url, resolve, reject });
+    processQueue();
+  });
+}
+
+/**
+ * Process the queue one request at a time.
+ */
+async function processQueue() {
+  if (queueProcessing) return;
+  queueProcessing = true;
+
+  while (requestQueue.length > 0) {
+    const { url, resolve, reject } = requestQueue[0];
+
+    try {
+      const result = await executeRateLimitedFetch(url);
+      resolve(result);
+    } catch (err) {
+      reject(err);
+    }
+
+    requestQueue.shift();
+  }
+
+  queueProcessing = false;
+}
+
+/**
+ * Execute a single rate-limited fetch with retry on 429.
+ */
+async function executeRateLimitedFetch(url, maxRetries = 3) {
   const userAgent = process.env.MOXFIELD_USER_AGENT;
 
   if (!userAgent) {
@@ -29,6 +71,7 @@ async function rateLimitedFetch(url, { maxRetries = 3, baseDelay = 1200 } = {}) 
     );
   }
 
+  const baseDelay = 1200;
   let attempt = 0;
 
   while (true) {
@@ -126,7 +169,7 @@ export function detectMoxfieldUrl(url) {
 
 async function fetchDeck(deckId) {
   console.log(`  [Moxfield] Fetching deck: ${deckId}`);
-  const data = await rateLimitedFetch(
+  const data = await queuedFetch(
     `https://api2.moxfield.com/v3/decks/all/${deckId}`
   );
 
@@ -163,7 +206,7 @@ async function fetchAllPages(baseUrl, onProgress) {
   const separator = baseUrl.includes("?") ? "&" : "?";
   const firstPageUrl = `${baseUrl}${separator}pageNumber=1`;
 
-  const firstPage = await rateLimitedFetch(firstPageUrl);
+  const firstPage = await queuedFetch(firstPageUrl);
 
   if (firstPage._notFound) {
     throw new Error(
@@ -189,7 +232,7 @@ async function fetchAllPages(baseUrl, onProgress) {
 
   for (let pageNum = 2; pageNum <= totalPages; pageNum++) {
     const pageUrl = `${baseUrl}${separator}pageNumber=${pageNum}`;
-    const pageData = await rateLimitedFetch(pageUrl);
+    const pageData = await queuedFetch(pageUrl);
 
     if (pageData._notFound) {
       console.warn(
