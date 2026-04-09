@@ -21,6 +21,29 @@
   <div class="container">
     <h1>MTG List Comparator</h1>
 
+    <div class="info-section">
+      <p class="info-tagline">Find trade matches by comparing any two Moxfield lists.</p>
+      <div class="info-details">
+        <button class="info-toggle" id="infoToggle">How does it work? ▾</button>
+        <div class="info-content" id="infoContent">
+          <p>Paste any two public Moxfield URLs and this tool will find matching cards between them — perfect for finding trade opportunities.</p>
+          <div class="info-supports">
+            <span class="info-supports-label">Supported list types:</span>
+            <div class="info-chips">
+              <span class="info-chip">📋 Decks</span>
+              <span class="info-chip">⭐ Wishlists</span>
+              <span class="info-chip">📦 Collections</span>
+              <span class="info-chip">📒 Binders</span>
+            </div>
+          </div>
+          <p class="info-example">
+            <strong>Example:</strong> Paste your wishlist as List 1 and someone's binder as List 2 to instantly see which cards they have that you need.
+          </p>
+          <p class="info-note">Cards are matched in 5 priority levels — from exact match (same set, collector number, foil) down to same card name in any set.</p>
+        </div>
+      </div>
+    </div>
+
     <div class="form-section">
       <input
         type="url"
@@ -56,10 +79,16 @@
   <script src="app.js"></script>
   <script>
     document.getElementById("copyEmailBtn").addEventListener("click", function () {
-      navigator.clipboard.writeText("ormanlaybars@gmail.com").then(() => {
+      navigator.clipboard.writeText("jyroeiletisim@gmail.com").then(() => {
         this.classList.add("copied");
         setTimeout(() => this.classList.remove("copied"), 2000);
       });
+    });
+
+    document.getElementById("infoToggle").addEventListener("click", function () {
+      const content = document.getElementById("infoContent");
+      const isOpen = content.classList.toggle("open");
+      this.textContent = isOpen ? "How does it work? ▴" : "How does it work? ▾";
     });
   </script>
 </body>
