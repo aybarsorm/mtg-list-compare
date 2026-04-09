@@ -3,12 +3,15 @@ document.addEventListener("DOMContentLoaded", () => {
   const url2Input = document.getElementById("url2");
   const compareBtn = document.getElementById("compareBtn");
   const statusDiv = document.getElementById("status");
+  const progressDiv = document.getElementById("progress");
+  const progressFill = document.getElementById("progressFill");
+  const progressText = document.getElementById("progressText");
   const resultsDiv = document.getElementById("results");
 
   let displayMode = localStorage.getItem("displayMode") || "image";
   let lastResults = null;
 
-  compareBtn.addEventListener("click", async () => {
+  compareBtn.addEventListener("click", () => {
     const url1 = url1Input.value.trim();
     const url2 = url2Input.value.trim();
 
@@ -17,7 +20,6 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    // Basic URL validation
     if (!url1.includes("moxfield.com")) {
       showStatus(
         "First URL doesn't look like a Moxfield link. Supported: moxfield.com/decks/, /collection/, /binders/",
@@ -35,34 +37,88 @@ document.addEventListener("DOMContentLoaded", () => {
 
     compareBtn.disabled = true;
     resultsDiv.innerHTML = "";
-    showStatus(
-      "⏳ Fetching card lists from Moxfield...\nThis may take 30-60 seconds on first load.",
-      "loading"
-    );
+    showStatus("", "");
+    showProgress("Connecting...", 0);
 
-    try {
-      const response = await fetch("/api/compare", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url1, url2 }),
-      });
+    // Build SSE URL
+    const params = new URLSearchParams({ url1, url2 });
+    const evtSource = new EventSource(`/api/compare-stream?${params.toString()}`);
 
-      const data = await response.json();
+    evtSource.addEventListener("progress", (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        const msg = data.message || "Working...";
 
-      if (!data.success) {
-        showStatus(`Error: ${data.error}`, "error");
+        // Try to extract percentage from page progress messages
+        const pctMatch = msg.match(/(\d+)%/);
+        const pct = pctMatch ? parseInt(pctMatch[1]) : null;
+
+        // Map stages to overall progress ranges
+        let overallPct = 0;
+        if (data.stage === "list1") {
+          overallPct = pct !== null ? Math.round(pct * 0.4) : 20;
+        } else if (data.stage === "list2") {
+          overallPct = pct !== null ? 40 + Math.round(pct * 0.5) : 60;
+        } else if (data.stage === "matching") {
+          overallPct = 92;
+        }
+
+        showProgress(msg, overallPct);
+      } catch (err) {
+        // ignore parse errors
+      }
+    });
+
+    evtSource.addEventListener("result", (e) => {
+      evtSource.close();
+      try {
+        const data = JSON.parse(e.data);
+        if (!data.success) {
+          hideProgress();
+          showStatus(`Error: ${data.error}`, "error");
+          compareBtn.disabled = false;
+          return;
+        }
+
+        showProgress("Done!", 100);
+
+        setTimeout(() => {
+          hideProgress();
+          const elapsed = data.elapsed ? ` (${data.elapsed})` : "";
+          showStatus(`✅ Comparison complete!${elapsed}`, "success");
+          lastResults = data;
+          renderResults(data);
+          compareBtn.disabled = false;
+        }, 400);
+      } catch (err) {
+        hideProgress();
+        showStatus(`Error parsing results: ${err.message}`, "error");
+        compareBtn.disabled = false;
+      }
+    });
+
+    evtSource.addEventListener("error", (e) => {
+      // Check if it's a custom error event from our server
+      if (e.data) {
+        evtSource.close();
+        try {
+          const data = JSON.parse(e.data);
+          hideProgress();
+          showStatus(`Error: ${data.error}`, "error");
+        } catch {
+          hideProgress();
+          showStatus("An unexpected error occurred.", "error");
+        }
+        compareBtn.disabled = false;
         return;
       }
 
-      const elapsed = data.elapsed ? ` (${data.elapsed})` : "";
-      showStatus(`✅ Comparison complete!${elapsed}`, "success");
-      lastResults = data;
-      renderResults(data);
-    } catch (err) {
-      showStatus(`Network error: ${err.message}`, "error");
-    } finally {
+      // EventSource native error (connection lost, etc.)
+      evtSource.close();
+      hideProgress();
+      showStatus("Connection lost. Please try again.", "error");
       compareBtn.disabled = false;
-    }
+    });
   });
 
   // ---- Status ----
@@ -70,6 +126,20 @@ document.addEventListener("DOMContentLoaded", () => {
   function showStatus(message, type) {
     statusDiv.textContent = message;
     statusDiv.className = `status ${type}`;
+  }
+
+  // ---- Progress ----
+
+  function showProgress(message, percent) {
+    progressDiv.classList.add("visible");
+    progressText.textContent = message;
+    progressFill.style.width = `${Math.min(100, Math.max(0, percent))}%`;
+  }
+
+  function hideProgress() {
+    progressDiv.classList.remove("visible");
+    progressFill.style.width = "0%";
+    progressText.textContent = "";
   }
 
   // ---- Categories ----

@@ -104,6 +104,46 @@ h1 {
 .status.error { color: #e74c3c; }
 .status.success { color: #2ecc71; }
 
+/* ---- Progress Bar ---- */
+
+.progress-container {
+  max-width: 700px;
+  margin: 20px auto 0;
+  opacity: 0;
+  max-height: 0;
+  overflow: hidden;
+  transition: opacity 0.3s, max-height 0.3s;
+}
+
+.progress-container.visible {
+  opacity: 1;
+  max-height: 80px;
+}
+
+.progress-bar {
+  width: 100%;
+  height: 8px;
+  background: #16213e;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #c9a84c, #d4b85e);
+  border-radius: 4px;
+  transition: width 0.4s ease;
+}
+
+.progress-text {
+  margin-top: 8px;
+  font-size: 0.85rem;
+  color: #c9a84c;
+  text-align: center;
+  min-height: 20px;
+}
+
 /* ---- Results ---- */
 
 .results {
